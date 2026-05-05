@@ -650,14 +650,26 @@ func (wa *WhatsAppClient) handleWADeleteChat(ctx context.Context, evt *events.De
 
 func (wa *WhatsAppClient) handleWADeleteForMe(ctx context.Context, evt *events.DeleteForMe) bool {
 	chatJID := wa.maybeConvertJIDToLID(ctx, evt.ChatJID)
-	return wa.UserLogin.QueueRemoteEvent(&simplevent.MessageRemove{
+	messageSender := evt.SenderJID
+	if evt.IsFromMe || messageSender.IsEmpty() {
+		messageSender = wa.JID.ToNonAD()
+	}
+	targetMessage := waid.MakeMessageID(chatJID, messageSender, evt.MessageID)
+	return wa.UserLogin.QueueRemoteEvent(&simplevent.Message[struct{}]{
 		EventMeta: simplevent.EventMeta{
-			Type:      bridgev2.RemoteEventMessageRemove,
+			Type:      bridgev2.RemoteEventMessage,
 			PortalKey: wa.makeWAPortalKey(chatJID),
+			Sender:    wa.makeEventSender(ctx, wa.JID),
 			Timestamp: evt.Timestamp,
 		},
-		TargetMessage: waid.MakeMessageID(chatJID, evt.SenderJID, evt.MessageID),
-		OnlyForMe:     true,
+		ID: waid.MakeFakeMessageID(
+			chatJID,
+			wa.JID,
+			"delete-notice-"+evt.MessageID+"-"+strconv.FormatInt(evt.Timestamp.UnixMilli(), 10),
+		),
+		ConvertMessageFunc: func(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data struct{}) (*bridgev2.ConvertedMessage, error) {
+			return makeWADeleteNoticeMessage(targetMessage, evt.MessageID), nil
+		},
 	}).Success
 }
 

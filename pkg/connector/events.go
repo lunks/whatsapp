@@ -292,7 +292,7 @@ func (evt *WAMessageEvent) GetType() bridgev2.RemoteEventType {
 	case "edit":
 		return bridgev2.RemoteEventEdit
 	case "revoke":
-		return bridgev2.RemoteEventMessageRemove
+		return bridgev2.RemoteEventMessage
 	case "ignore":
 		return bridgev2.RemoteEventUnknown
 	default:
@@ -334,6 +334,10 @@ func (evt *WAMessageEvent) addMuseProfile(portal *bridgev2.Portal, converted *br
 }
 
 func (evt *WAMessageEvent) ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI) (*bridgev2.ConvertedMessage, error) {
+	if evt.parsedMessageType == "revoke" {
+		return makeWADeleteNoticeMessage(evt.GetTargetMessage(), evt.Message.GetProtocolMessage().GetKey().GetID()), nil
+	}
+
 	evt.wa.EnqueuePortalResync(portal, false)
 	converted := evt.wa.Main.MsgConv.ToMatrix(
 		ctx, portal, evt.wa.Client, intent, evt.Message, evt.MsgEvent.RawMessage, &evt.Info, evt.isViewOnce(), false, nil,
@@ -347,6 +351,19 @@ func (evt *WAMessageEvent) ConvertMessage(ctx context.Context, portal *bridgev2.
 		evt.wa.Main.AddMediaEditCache(portal, evt.GetID(), converted.Parts[0])
 	}
 	return converted, nil
+}
+
+func makeWADeleteNoticeMessage(targetMessage networkid.MessageID, deletedMessageID string) *bridgev2.ConvertedMessage {
+	return &bridgev2.ConvertedMessage{
+		ReplyTo: &networkid.MessageOptionalPartID{MessageID: targetMessage},
+		Parts: []*bridgev2.ConvertedMessagePart{{
+			Type: event.EventMessage,
+			Content: &event.MessageEventContent{
+				MsgType: event.MsgText,
+				Body:    fmt.Sprintf("🚮 Message deletion attempted (ID: %s)", deletedMessageID),
+			},
+		}},
+	}
 }
 
 type WANowDecryptableMessage struct {
